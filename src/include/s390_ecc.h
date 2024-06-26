@@ -17,6 +17,7 @@
 #include <openssl/ec.h>
 #include <openssl/obj_mac.h>
 #include <asm/zcrypt.h>
+#include "s390_cca.h"
 #include "ica_api.h"
 
 #define MAX_ECC_PRIV_SIZE	66 /* 521 bits */
@@ -113,16 +114,6 @@ int scalar_mulx_cpacf(unsigned char *res_u,
 #define CURVE_TYPE_BRAINPOOL	0x01
 
 /**
- * CCA token header.
- */
-typedef struct {
-	uint8_t tkn_hdr_id;
-	uint8_t tkn_hdr_version;
-	uint16_t tkn_length;
-	uint8_t reserved[4];
-} __attribute__((packed)) CCA_TOKEN_HDR;
-
-/**
  * ECC private key section
  */
 typedef struct {
@@ -180,7 +171,7 @@ typedef struct {
 typedef struct {
 	uint16_t key_len;
 	uint16_t reserved;
-	CCA_TOKEN_HDR tknhdr;
+	PKA_TOKEN_HDR tknhdr;
 	ECC_PRIVATE_KEY_SECTION privsec;
 	ECC_ASSOCIATED_DATA adata;
 	unsigned char privkey[0];
@@ -198,28 +189,12 @@ typedef struct {
 } __attribute__((packed)) ECC_PUBLIC_KEY_TOKEN;
 
 /**
- * ECC keyblock, just the length field.
- */
-typedef struct {
-	uint16_t keyblock_len;
-} __attribute__((packed)) ECC_KEYBLOCK_LENGTH;
-
-/**
  * A null key token.
  */
 typedef struct {
 	uint8_t nullkey_len[2];
 	uint8_t nkey[66];
 } ECDH_NULLKEY;
-
-/**
- * An ecc nullkey block.
- */
-typedef struct {
-	uint16_t len;
-	uint16_t flags;
-	uint8_t nulltoken;
-} __attribute__((packed)) ECC_NULL_TOKEN;
 
 /**
  * ECDH parmblock.
@@ -291,7 +266,7 @@ typedef struct {
 typedef struct {
 	uint16_t key_len;
 	uint8_t reserved[2];
-	CCA_TOKEN_HDR tknhdr;
+	PKA_TOKEN_HDR tknhdr;
 	ECC_PUBLIC_KEY_SECTION pubsec;
 	uint8_t compress_flag;
 	unsigned char pubkey[0];
@@ -338,24 +313,12 @@ unsigned int ecdsa_verify_sw(const ICA_EC_KEY *pubkey,
 		const unsigned char *signature);
 
 /**
- * ECKeyGen parmblock.
- */
-typedef struct {
-	uint16_t subfunc_code;
-	struct {
-		uint16_t rule_array_len;
-		uint8_t rule_array_cmd[8];
-	} rule_array;
-	uint16_t vud_len; /* no data, only len field */
-} __attribute__((packed)) ECKEYGEN_PARMBLOCK;
-
-/**
  * ECKeyGen private key struct
  */
 typedef struct {
 	uint16_t key_len;
 	uint16_t reserved1;
-	CCA_TOKEN_HDR tknhdr;
+	PKA_TOKEN_HDR tknhdr;
 	ECC_PRIVATE_KEY_SECTION privsec;
 	ECC_ASSOCIATED_DATA adata;
 	ECC_PUBLIC_KEY_SECTION pubsec;

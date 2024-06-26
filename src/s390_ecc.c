@@ -40,8 +40,6 @@
 extern OSSL_LIB_CTX *openssl_libctx;
 #endif
 
-#define CPRBXSIZE (sizeof(struct CPRBX))
-#define PARMBSIZE (2048)
 #define MAX_KDSA_RETRIES         10000
 
 
@@ -59,17 +57,6 @@ int scalar_mulx_cpacf(unsigned char *res_u,
 		      const unsigned char *scalar,
 		      const unsigned char *u,
 		      int curve_nid);
-
-/**
- * Since kernel 4.10 the zcrypt device driver has multi domain support and
- * accepts CPRBs via the ioctl ZSECSENDCPRB with domain addressing 0xFFFF
- * (AUTOSELECT_DOM in zcrypyt.h). This allows for load balancing between
- * multiple available crypto cards.
- */
-typedef enum {
-	dom_addressing_autoselect = 0,
-	dom_addressing_default_domain,
-} dom_addressing_t;
 
 /**
  * Check if openssl does support this ec curve
@@ -342,16 +329,6 @@ err:
 }
 
 /**
- * makes a keyblock length field at given struct and returns its length.
- */
-static unsigned int make_keyblock_length(ECC_KEYBLOCK_LENGTH *kb, unsigned int len)
-{
-	kb->keyblock_len = len;
-
-	return sizeof(ECC_KEYBLOCK_LENGTH);
-}
-
-/**
  * makes a nullkey token at given struct and returns its length.
  */
 static unsigned int make_nullkey(ECDH_NULLKEY* nkey)
@@ -360,71 +337,6 @@ static unsigned int make_nullkey(ECDH_NULLKEY* nkey)
 	nkey->nullkey_len[1] = 0x44;
 
 	return sizeof(ECDH_NULLKEY);
-}
-
-/**
- * makes an ecc null token at given struct.
- */
-static unsigned int make_ecc_null_token(ECC_NULL_TOKEN *kb)
-{
-	kb->len = 0x0005;
-	kb->flags = 0x0010;
-	kb->nulltoken = 0x00;
-
-	return sizeof(ECC_NULL_TOKEN);
-}
-
-/**
- * determines and returns the default domain. With older zcrypt drivers
- * it's not possible to specify 0xffff to indicate 'any domain' in a
- * request CPRB.
- *
- * @return domain number (0 ... n, machine dependent) if success
- *         -1 if error or driver not loaded
- */
-static short get_default_domain(void)
-{
-	const char *domainfile = "/sys/bus/ap/ap_domain";
-	static short domain = -1;
-	int temp;
-	FILE *f;
-
-	f = fopen(domainfile, "r");
-	if (!f)
-		return domain;
-
-	if (fscanf(f, "%d", &temp) != 1)
-		goto done;
-
-	domain = (short)temp;
-
-done:
-	if (f)
-		fclose(f);
-
-	return domain;
-}
-
-/**
- * makes a T2 CPRBX at given struct and returns its length.
- */
-static unsigned int make_cprbx(struct CPRBX* cprbx, unsigned int parmlen,
-		struct CPRBX *preqcblk, struct CPRBX *prepcblk,
-		dom_addressing_t dom_addressing)
-{
-	cprbx->cprb_len = CPRBXSIZE;
-	cprbx->cprb_ver_id = 0x02;
-	memcpy(&(cprbx->func_id), "T2", 2);
-	cprbx->req_parml = parmlen;
-	if (dom_addressing == dom_addressing_autoselect)
-		cprbx->domain = 0xFFFF;
-	else
-		cprbx->domain = get_default_domain();
-	cprbx->rpl_msgbl = CPRBXSIZE + PARMBSIZE;
-	cprbx->req_parmb = ((uint8_t *) preqcblk) + CPRBXSIZE;
-	cprbx->rpl_parmb = ((uint8_t *) prepcblk) + CPRBXSIZE;
-
-	return CPRBXSIZE;
 }
 
 /**
@@ -470,7 +382,7 @@ static unsigned int make_ecdh_key_token(unsigned char *kb, unsigned int keyblock
 	unsigned int this_length = sizeof(ECC_PRIVATE_KEY_TOKEN) + privlen
 			+ sizeof(ECC_PUBLIC_KEY_TOKEN) + 2*privlen;
 
-	unsigned int ecdhkey_length = 2 + 2 + sizeof(CCA_TOKEN_HDR)
+	unsigned int ecdhkey_length = 2 + 2 + sizeof(PKA_TOKEN_HDR)
 			+ sizeof(ECC_PRIVATE_KEY_SECTION)
 			+ sizeof(ECC_ASSOCIATED_DATA) + privlen
 			+ sizeof(ECC_PUBLIC_KEY_TOKEN) + 2*privlen;
@@ -523,20 +435,6 @@ static unsigned int make_ecdh_key_token(unsigned char *kb, unsigned int keyblock
 }
 
 /**
- * finalizes an ica_xcRB struct that is sent to the card.
- */
-static void finalize_xcrb(struct ica_xcRB* xcrb, struct CPRBX *preqcblk, struct CPRBX *prepcblk)
-{
-	memset(xcrb, 0, sizeof(struct ica_xcRB));
-	xcrb->agent_ID = 0x4341;
-	xcrb->user_defined = AUTOSELECT; /* use any card number */
-	xcrb->request_control_blk_length = preqcblk->cprb_len + preqcblk->req_parml;
-	xcrb->request_control_blk_addr = (void *) preqcblk;
-	xcrb->reply_control_blk_length = preqcblk->rpl_msgbl;
-	xcrb->reply_control_blk_addr = (void *) prepcblk;
-}
-
-/**
  * creates an ECDH xcrb request message for zcrypt.
  *
  * returns a pointer to the control block where the card
@@ -553,7 +451,7 @@ static ECDH_REPLY* make_ecdh_request(const ICA_EC_KEY *privkey_A, const ICA_EC_K
 	struct CPRBX *preqcblk, *prepcblk;
 	unsigned int privlen = privlen_from_nid(privkey_A->nid);
 
-	unsigned int ecdh_key_token_len = 2 + 2 + sizeof(CCA_TOKEN_HDR)
+	unsigned int ecdh_key_token_len = 2 + 2 + sizeof(PKA_TOKEN_HDR)
 		+ sizeof(ECC_PRIVATE_KEY_SECTION)
 		+ sizeof(ECC_ASSOCIATED_DATA) + privlen
 		+ sizeof(ECC_PUBLIC_KEY_TOKEN) + 2*privlen;
@@ -579,7 +477,7 @@ static ECDH_REPLY* make_ecdh_request(const ICA_EC_KEY *privkey_A, const ICA_EC_K
 	unsigned int offset = 0;
 	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
 	offset += make_ecdh_parmblock((ECDH_PARMBLOCK*)(*cbrbmem+offset));
-	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
+	offset += make_pka_keyblock_length((PKA_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
 	offset += make_ecdh_key_token(*cbrbmem+offset, ecdh_key_token_len, privkey_A, pubkey_B, curve_type);
 	offset += make_nullkey((ECDH_NULLKEY*)(*cbrbmem+offset));
 	offset += make_ecdh_key_token(*cbrbmem+offset, ecdh_key_token_len, privkey_A, pubkey_B, curve_type);
@@ -1097,7 +995,7 @@ static unsigned int make_ecdsa_private_key_token(unsigned char *kb,
 	ECC_PUBLIC_KEY_TOKEN* kp2;
 	int privlen = privlen_from_nid(privkey->nid);
 
-	unsigned int ecdsakey_length = 2 + 2 + sizeof(CCA_TOKEN_HDR)
+	unsigned int ecdsakey_length = 2 + 2 + sizeof(PKA_TOKEN_HDR)
 			+ sizeof(ECC_PRIVATE_KEY_SECTION)
 			+ sizeof(ECC_ASSOCIATED_DATA) + privlen
 			+ sizeof(ECC_PUBLIC_KEY_TOKEN) + 2*privlen;
@@ -1202,7 +1100,7 @@ static ECDSA_SIGN_REPLY* make_ecdsa_sign_request(const ICA_EC_KEY *privkey,
 	struct CPRBX *preqcblk, *prepcblk;
 	int privlen = privlen_from_nid(privkey->nid);
 
-	unsigned int ecdsa_key_token_len = 2 + 2 + sizeof(CCA_TOKEN_HDR)
+	unsigned int ecdsa_key_token_len = 2 + 2 + sizeof(PKA_TOKEN_HDR)
 		+ sizeof(ECC_PRIVATE_KEY_SECTION)
 		+ sizeof(ECC_ASSOCIATED_DATA) + privlen
 		+ sizeof(ECC_PUBLIC_KEY_TOKEN) + 2*privlen;
@@ -1230,7 +1128,7 @@ static ECDSA_SIGN_REPLY* make_ecdsa_sign_request(const ICA_EC_KEY *privkey,
 	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
 	offset += make_ecdsa_sign_parmblock((ECDSA_PARMBLOCK_PART1*)
 					    (*cbrbmem+offset), hash, hash_length);
-	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
+	offset += make_pka_keyblock_length((PKA_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
 	offset += make_ecdsa_private_key_token(*cbrbmem+offset, privkey, X, Y, curve_type);
 	finalize_xcrb(xcrb, preqcblk, prepcblk);
 
@@ -1550,7 +1448,7 @@ static ECDSA_VERIFY_REPLY* make_ecdsa_verify_request(const ICA_EC_KEY *pubkey,
 	struct CPRBX *preqcblk, *prepcblk;
 	unsigned int privlen = privlen_from_nid(pubkey->nid);
 
-	unsigned int ecdsa_key_token_len = 2 + 2 + sizeof(CCA_TOKEN_HDR)
+	unsigned int ecdsa_key_token_len = 2 + 2 + sizeof(PKA_TOKEN_HDR)
 		+ sizeof(ECC_PUBLIC_KEY_TOKEN) + 2*privlen;
 
 	unsigned int keyblock_len = 2 + ecdsa_key_token_len;
@@ -1576,7 +1474,7 @@ static ECDSA_VERIFY_REPLY* make_ecdsa_verify_request(const ICA_EC_KEY *pubkey,
 	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
 	offset += make_ecdsa_verify_parmblock((char*)(*cbrbmem+offset), hash,
 					      hash_length, signature, 2*privlen);
-	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
+	offset += make_pka_keyblock_length((PKA_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
 	offset += make_ecdsa_public_key_token((ECDSA_PUBLIC_KEY_BLOCK*)
 					      (*cbrbmem+offset), pubkey, curve_type);
 	finalize_xcrb(xcrb, preqcblk, prepcblk);
@@ -2113,19 +2011,6 @@ err:
 }
 
 /**
- * makes an ECKeyGen parmblock at given struct and returns its length.
- */
-static unsigned int make_eckeygen_parmblock(ECKEYGEN_PARMBLOCK *pb)
-{
-	pb->subfunc_code = 0x5047; /* 'PG' */
-	pb->rule_array.rule_array_len = 0x000A;
-	memcpy(&(pb->rule_array.rule_array_cmd), "CLEAR   ", 8);
-	pb->vud_len = 0x0002;
-
-	return sizeof(ECKEYGEN_PARMBLOCK);
-}
-
-/**
  * makes an ECKeyGen private key structure at given struct and returns its length.
  */
 static unsigned int make_eckeygen_private_key_token(ECKEYGEN_KEY_TOKEN* kb,
@@ -2186,8 +2071,8 @@ static ECKEYGEN_REPLY* make_eckeygen_request(ICA_EC_KEY *key,
 	struct CPRBX *preqcblk, *prepcblk;
 
 	unsigned int keyblock_len = 2 + sizeof(ECKEYGEN_KEY_TOKEN)
-			+ sizeof(ECC_NULL_TOKEN);
-	unsigned int parmblock_len = sizeof(ECKEYGEN_PARMBLOCK) + keyblock_len;
+			+ sizeof(PKA_NULL_TOKEN);
+	unsigned int parmblock_len = sizeof(PKA_KEYGEN_PARMBLOCK) + keyblock_len;
 
 	int curve_type = curve_type_from_nid(key->nid);
 	if (curve_type < 0)
@@ -2206,10 +2091,10 @@ static ECKEYGEN_REPLY* make_eckeygen_request(ICA_EC_KEY *key,
 	/* make ECKeyGen request */
 	unsigned int offset = 0;
 	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
-	offset += make_eckeygen_parmblock((ECKEYGEN_PARMBLOCK*)(*cbrbmem+offset));
-	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
+	offset += make_pka_keygen_parmblock((PKA_KEYGEN_PARMBLOCK*)(*cbrbmem+offset));
+	offset += make_pka_keyblock_length((PKA_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
 	offset += make_eckeygen_private_key_token((ECKEYGEN_KEY_TOKEN*)(*cbrbmem+offset), key->nid, curve_type);
-	offset += make_ecc_null_token((ECC_NULL_TOKEN*)(*cbrbmem+offset));
+	offset += make_pka_null_token((PKA_NULL_TOKEN*)(*cbrbmem+offset));
 	finalize_xcrb(xcrb, preqcblk, prepcblk);
 
 	return (ECKEYGEN_REPLY*)prepcblk;
