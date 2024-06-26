@@ -70,7 +70,6 @@ typedef enum {
 	dom_addressing_autoselect = 0,
 	dom_addressing_default_domain,
 } dom_addressing_t;
-int dom_addressing = dom_addressing_autoselect;
 
 /**
  * Check if openssl does support this ec curve
@@ -410,7 +409,8 @@ done:
  * makes a T2 CPRBX at given struct and returns its length.
  */
 static unsigned int make_cprbx(struct CPRBX* cprbx, unsigned int parmlen,
-		struct CPRBX *preqcblk, struct CPRBX *prepcblk)
+		struct CPRBX *preqcblk, struct CPRBX *prepcblk,
+		dom_addressing_t dom_addressing)
 {
 	cprbx->cprb_len = CPRBXSIZE;
 	cprbx->cprb_ver_id = 0x02;
@@ -547,7 +547,8 @@ static void finalize_xcrb(struct ica_xcRB* xcrb, struct CPRBX *preqcblk, struct 
  * memory.
  */
 static ECDH_REPLY* make_ecdh_request(const ICA_EC_KEY *privkey_A, const ICA_EC_KEY *pubkey_B,
-		struct ica_xcRB* xcrb, uint8_t **cbrbmem, size_t *len)
+		struct ica_xcRB* xcrb, uint8_t **cbrbmem, size_t *len,
+		dom_addressing_t dom_addressing)
 {
 	struct CPRBX *preqcblk, *prepcblk;
 	unsigned int privlen = privlen_from_nid(privkey_A->nid);
@@ -576,7 +577,7 @@ static ECDH_REPLY* make_ecdh_request(const ICA_EC_KEY *privkey_A, const ICA_EC_K
 
 	/* make ECDH request */
 	unsigned int offset = 0;
-	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk);
+	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
 	offset += make_ecdh_parmblock((ECDH_PARMBLOCK*)(*cbrbmem+offset));
 	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
 	offset += make_ecdh_key_token(*cbrbmem+offset, ecdh_key_token_len, privkey_A, pubkey_B, curve_type);
@@ -937,7 +938,8 @@ unsigned int ecdh_hw(ica_adapter_handle_t adapter_handle,
 	if (adapter_handle == DRIVER_NOT_LOADED)
 		return EIO;
 
-	reply_p = make_ecdh_request(privkey_A, pubkey_B, &xcrb, &buf, &len);
+	reply_p = make_ecdh_request(privkey_A, pubkey_B, &xcrb, &buf, &len, 
+					dom_addressing_autoselect);
 	if (!reply_p) {
 		rc = EIO;
 		goto ret;
@@ -945,8 +947,8 @@ unsigned int ecdh_hw(ica_adapter_handle_t adapter_handle,
 
 	rc = ioctl(adapter_handle, ZSECSENDCPRB, xcrb);
 	if (rc != 0) {
-		dom_addressing = dom_addressing_default_domain;
-		reply_p = make_ecdh_request(privkey_A, pubkey_B, &xcrb, &buf, &len);
+		reply_p = make_ecdh_request(privkey_A, pubkey_B, &xcrb, &buf, &len, 
+					dom_addressing_default_domain);
 		if (!reply_p) {
 			rc = EIO;
 			goto ret;
@@ -1194,7 +1196,8 @@ static unsigned int make_ecdsa_public_key_token(ECDSA_PUBLIC_KEY_BLOCK *kb,
 static ECDSA_SIGN_REPLY* make_ecdsa_sign_request(const ICA_EC_KEY *privkey,
 		const unsigned char *X, const unsigned char *Y,
 		const unsigned char *hash, unsigned int hash_length,
-		struct ica_xcRB* xcrb, uint8_t **cbrbmem, size_t *len)
+		struct ica_xcRB* xcrb, uint8_t **cbrbmem, size_t *len,
+		dom_addressing_t dom_addressing)
 {
 	struct CPRBX *preqcblk, *prepcblk;
 	int privlen = privlen_from_nid(privkey->nid);
@@ -1224,7 +1227,7 @@ static ECDSA_SIGN_REPLY* make_ecdsa_sign_request(const ICA_EC_KEY *privkey,
 
 	/* make ECDSA sign request */
 	unsigned int offset = 0;
-	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk);
+	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
 	offset += make_ecdsa_sign_parmblock((ECDSA_PARMBLOCK_PART1*)
 					    (*cbrbmem+offset), hash, hash_length);
 	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
@@ -1397,7 +1400,8 @@ unsigned int ecdsa_sign_hw(ica_adapter_handle_t adapter_handle,
 		return EIO;
 
 	reply_p = make_ecdsa_sign_request((const ICA_EC_KEY*)privkey,
-			X, Y, hash, hash_length, &xcrb, &buf, &len);
+			X, Y, hash, hash_length, &xcrb, &buf, &len, 
+			dom_addressing_autoselect);
 	if (!reply_p) {
 		rc = EIO;
 		goto ret;
@@ -1405,9 +1409,9 @@ unsigned int ecdsa_sign_hw(ica_adapter_handle_t adapter_handle,
 
 	rc = ioctl(adapter_handle, ZSECSENDCPRB, xcrb);
 	if (rc != 0) {
-		dom_addressing = dom_addressing_default_domain;
 		reply_p = make_ecdsa_sign_request((const ICA_EC_KEY*)privkey,
-				X, Y, hash, hash_length, &xcrb, &buf, &len);
+				X, Y, hash, hash_length, &xcrb, &buf, &len, 
+				dom_addressing_default_domain);
 		if (!reply_p) {
 			rc = EIO;
 			goto ret;
@@ -1541,7 +1545,7 @@ err:
 static ECDSA_VERIFY_REPLY* make_ecdsa_verify_request(const ICA_EC_KEY *pubkey,
 		const unsigned char *hash, unsigned int hash_length,
 		const unsigned char *signature, struct ica_xcRB* xcrb,
-		uint8_t **cbrbmem, size_t *len)
+		uint8_t **cbrbmem, size_t *len, dom_addressing_t dom_addressing)
 {
 	struct CPRBX *preqcblk, *prepcblk;
 	unsigned int privlen = privlen_from_nid(pubkey->nid);
@@ -1569,7 +1573,7 @@ static ECDSA_VERIFY_REPLY* make_ecdsa_verify_request(const ICA_EC_KEY *pubkey,
 
 	/* make ECDSA verify request */
 	unsigned int offset = 0;
-	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk);
+	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
 	offset += make_ecdsa_verify_parmblock((char*)(*cbrbmem+offset), hash,
 					      hash_length, signature, 2*privlen);
 	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
@@ -1957,7 +1961,8 @@ unsigned int ecdsa_verify_hw(ica_adapter_handle_t adapter_handle,
 		return EIO;
 
 	reply_p = make_ecdsa_verify_request(pubkey, hash, hash_length,
-					    signature, &xcrb, &buf, &len);
+					signature, &xcrb, &buf, &len, 
+					dom_addressing_autoselect);
 	if (!reply_p) {
 		rc = EIO;
 		goto ret;
@@ -1965,9 +1970,9 @@ unsigned int ecdsa_verify_hw(ica_adapter_handle_t adapter_handle,
 
 	rc = ioctl(adapter_handle, ZSECSENDCPRB, xcrb);
 	if (rc != 0) {
-		dom_addressing = dom_addressing_default_domain;
 		reply_p = make_ecdsa_verify_request(pubkey, hash, hash_length,
-						    signature, &xcrb, &buf, &len);
+							signature, &xcrb, &buf, &len, 
+							dom_addressing_default_domain);
 		if (!reply_p) {
 			rc = EIO;
 			goto ret;
@@ -2176,7 +2181,7 @@ static unsigned int make_eckeygen_private_key_token(ECKEYGEN_KEY_TOKEN* kb,
  */
 static ECKEYGEN_REPLY* make_eckeygen_request(ICA_EC_KEY *key,
 					     struct ica_xcRB* xcrb,
-					     uint8_t **cbrbmem, size_t *len)
+					     uint8_t **cbrbmem, size_t *len, dom_addressing_t dom_addressing)
 {
 	struct CPRBX *preqcblk, *prepcblk;
 
@@ -2200,7 +2205,7 @@ static ECKEYGEN_REPLY* make_eckeygen_request(ICA_EC_KEY *key,
 
 	/* make ECKeyGen request */
 	unsigned int offset = 0;
-	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk);
+	offset = make_cprbx((struct CPRBX *)*cbrbmem, parmblock_len, preqcblk, prepcblk, dom_addressing);
 	offset += make_eckeygen_parmblock((ECKEYGEN_PARMBLOCK*)(*cbrbmem+offset));
 	offset += make_keyblock_length((ECC_KEYBLOCK_LENGTH*)(*cbrbmem+offset), keyblock_len);
 	offset += make_eckeygen_private_key_token((ECKEYGEN_KEY_TOKEN*)(*cbrbmem+offset), key->nid, curve_type);
@@ -2366,7 +2371,8 @@ unsigned int eckeygen_hw(ica_adapter_handle_t adapter_handle, ICA_EC_KEY *key)
 	if (!curve_supported_via_online_card(key->nid))
 		return ENODEV;
 
-	reply_p = make_eckeygen_request(key, &xcrb, &buf, &len);
+	reply_p = make_eckeygen_request(key, &xcrb, &buf, &len, 
+				dom_addressing_autoselect);
 	if (!reply_p) {
 		rc = EIO;
 		goto ret;
@@ -2374,8 +2380,8 @@ unsigned int eckeygen_hw(ica_adapter_handle_t adapter_handle, ICA_EC_KEY *key)
 
 	rc = ioctl(adapter_handle, ZSECSENDCPRB, xcrb);
 	if (rc != 0) {
-		dom_addressing = dom_addressing_default_domain;
-		reply_p = make_eckeygen_request(key, &xcrb, &buf, &len);
+		reply_p = make_eckeygen_request(key, &xcrb, &buf, &len, 
+					dom_addressing_default_domain);
 		if (!reply_p) {
 			rc = EIO;
 			goto ret;
