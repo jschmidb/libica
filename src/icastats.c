@@ -88,7 +88,7 @@ void print_stats(stats_entry_t *stats, int key_sizes)
 		if (!key_sizes && strncmp(STATS_DESC[i], "- ", 2) == 0)
 			continue;
 
-		if (i <= ICA_STATS_RSA_CRT_4096) {
+		if (i <= ICA_STATS_DILITHIUM_VERIFY_3_87) {
 			printf(" %14s |        %*lu          |         %*lu\n",
 			       STATS_DESC[i],
 			       CELL_SIZE,
@@ -172,7 +172,7 @@ void print_stats_json(stats_entry_t *stats, const char *usr)
 			last_func = NULL;
 		}
 
-		if (i <= ICA_STATS_RSA_CRT_4096) {
+		if (i <= ICA_STATS_DILITHIUM_VERIFY_3_87) {
 			printf("\t\t\t\t\t\"hw-crypt\": %lu,\n",
 			       stats[i].enc.hw);
 			printf("\t\t\t\t\t\"sw-crypt\": %lu\n",

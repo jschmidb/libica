@@ -222,6 +222,19 @@ void get_stats_data(stats_entry_t *source, stats_entry_t *entries)
 							 ALGO_SW, DECRYPT);
 			break;
 
+		case ICA_STATS_MLDSA_KEYGEN:
+		case ICA_STATS_MLDSA_SIGN:
+		case ICA_STATS_MLDSA_VERIFY:
+			entries[i].enc.hw = calc_summary(source, i + 1, 4,
+							 ALGO_HW, ENCRYPT);
+			entries[i].enc.sw = calc_summary(source, i + 1, 4,
+							 ALGO_SW, ENCRYPT);
+			entries[i].dec.hw = calc_summary(source, i + 1, 4,
+							 ALGO_HW, DECRYPT);
+			entries[i].dec.sw = calc_summary(source, i + 1, 4,
+							 ALGO_SW, DECRYPT);
+			break;
+
 		default:
 			entries[i].enc.hw = stats_query(source, i,
 							ALGO_HW, ENCRYPT);
