@@ -52,6 +52,7 @@ ec_keygen2_test.sh \
 ecdh2_test.sh \
 ecdsa2_test.sh \
 eddsa_test \
+mldsa_test \
 x_test \
 mp_test \
 adapter_handle_test
@@ -79,7 +80,7 @@ check_PROGRAMS = fips_test icastats_test get_functionlist_test \
 get_version_test rng_test drbg_test drbg_birthdays_test \
 des_ecb_test des_cbc_test des_ctr_test des_cfb_test des_ofb_test \
 tdes_ecb_test tdes_cbc_test tdes_ctr_test tdes_cfb_test \
-tdes_ofb_test aes_ecb_test \
+tdes_ofb_test aes_ecb_test mldsa_test \
 aes_cbc_test aes_ctr_test aes_cfb_test aes_ofb_test aes_xts_test \
 aes_gcm_test aes_gcm_kma_test cbccs_test ccm_test cmac_test sha_test \
 sha1_test sha256_test sha3_224_test sha3_256_test sha3_384_test \
