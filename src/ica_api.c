@@ -35,6 +35,7 @@
 #include "rng.h"
 #include "s390_rsa.h"
 #include "s390_ecc.h"
+#include "s390_mldsa.h"
 #include "s390_crypto.h"
 #include "s390_sha.h"
 #include "s390_prng.h"
@@ -4481,6 +4482,204 @@ void ica_aes_gcm_kma_ctx_free(kma_ctx* ctx)
  *                             End of GCM(2) API
  *
  ***************************************************************************************/
+
+static inline int check_fips_mldsa(void)
+{
+#ifdef ICA_FIPS
+	/* As of now, ML-DSA / Dilithium is not FIPS 140-3 approved. This may change. */
+	return (fips & ICA_FIPS_MODE);
+#else
+	return 0;
+#endif
+}
+
+/*
+ * Allocate a new context. CEX8C required.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+int ica_mldsa_ctx_new(ICA_MLDSA_CTX **ctx, mldsa_variant_t variant)
+{
+	if (!mldsa_supported_via_online_card(variant) || ctx == NULL)
+		return -1;
+
+	*ctx = calloc(1, sizeof(**ctx));
+	if (*ctx == NULL)
+		return -1;
+
+	mldsa_ctx_init(*ctx, variant);
+
+	return 0;
+}
+
+/*
+ * Copy the private and public key parts to the context. CEX8C required.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+int ica_mldsa_key_set(ICA_MLDSA_CTX *ctx,
+			const unsigned char *pubkey, unsigned int pubkey_len,
+			const unsigned char *privkey, unsigned int privkey_len)
+{
+	if (check_fips_mldsa() || ctx == NULL ||
+		!mldsa_supported_via_online_card(ctx->variant))
+		return -1;
+
+	if (pubkey != NULL && pubkey_len == ctx->publen) {
+		memcpy(ctx->pubkey, pubkey, ctx->publen);
+		ctx->pub_init = 1;
+	}
+
+	if (privkey != NULL && privkey_len == ctx->privlen) {
+		memcpy(ctx->privkey, privkey, ctx->privlen);
+		ctx->priv_init = 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Copy the private and public key from the context. CCA 8.1 required.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+int ica_mldsa_key_get(ICA_MLDSA_CTX *ctx,
+			unsigned char *pubkey, unsigned int *pubkey_len,
+			unsigned char *privkey, unsigned int *privkey_len)
+{
+	if (check_fips_mldsa() || ctx == NULL ||
+		!mldsa_supported_via_online_card(ctx->variant))
+		return -1;
+
+	if (pubkey == NULL && privkey == NULL) {
+		*pubkey_len = ctx->publen; /* length only */
+		*privkey_len = ctx->privlen;
+		return 0;
+	}
+
+	if (pubkey != NULL && *pubkey_len >= ctx->publen) {
+		if (!ctx->pub_init)
+			return -1;
+
+		memcpy(pubkey, ctx->pubkey, ctx->publen);
+		*pubkey_len = ctx->publen;
+	}
+
+	if (privkey != NULL && *privkey_len >= ctx->privlen) {
+		if (!ctx->priv_init)
+			return -1;
+
+		memcpy(privkey, ctx->privkey, ctx->privlen);
+		*privkey_len = ctx->privlen;
+	}
+
+	return 0;
+}
+
+/*
+ * Generate an ML-DSA key. CCA 8.1 required.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+int ica_mldsa_key_gen(ica_adapter_handle_t adapter_handle,
+							ICA_MLDSA_CTX *ctx)
+{
+	if (check_fips_mldsa() || ctx == NULL ||
+		!mldsa_supported_via_online_card(ctx->variant))
+		return -1;
+
+	if (qsa_keygen_hw(adapter_handle, ctx))
+		return -1;
+
+	ctx->pub_init = 1;
+	ctx->priv_init = 1;
+
+	stats_increment(ICA_STATS_MLDSA_KEYGEN +
+					mldsa_keysize_stats_ofs(ctx->variant),
+					ALGO_HW, ENCRYPT);
+
+	return 0;
+}
+
+/*
+ * Sign. Requires the context to hold the private key. CEX8C required.
+ * If a NULL pointer is passed for sig, then the length of the signature is
+ * returned in *siglen.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+int ica_mldsa_sign(ica_adapter_handle_t adapter_handle, ICA_MLDSA_CTX *ctx,
+				unsigned char *sig, unsigned int *siglen,
+				const unsigned char *msg, size_t msglen)
+{
+	if (check_fips_mldsa() || ctx == NULL ||
+		!mldsa_supported_via_online_card(ctx->variant))
+		return -1;
+
+	if (!ctx->priv_init || (msg == NULL && msglen != 0) ||
+		msglen > ctx->max_msglen)
+		return -1;
+
+	if (sig == NULL) {
+		*siglen = ctx->siglen; /* length only */
+		return 0;
+	}
+
+	if (sig != NULL && *siglen < ctx->siglen)
+		return -1;
+
+	if (qsa_sign_hw(adapter_handle, ctx, sig, siglen, msg, msglen))
+		return -1;
+
+	stats_increment(ICA_STATS_MLDSA_SIGN +
+					mldsa_keysize_stats_ofs(ctx->variant),
+					ALGO_HW, ENCRYPT);
+
+	return 0;
+}
+
+/*
+ * Verify. Requires the context to hold the public key. CEX8C required.
+ * Returns 0 if signature is valid. Otherwise, -1 is returned.
+ */
+int ica_mldsa_verify(ica_adapter_handle_t adapter_handle,
+				ICA_MLDSA_CTX *ctx, const unsigned char *sig,
+				unsigned int siglen, const unsigned char *msg, size_t msglen)
+{
+	if (check_fips_mldsa() || ctx == NULL ||
+		!mldsa_supported_via_online_card(ctx->variant))
+		return -1;
+
+	if (!ctx->pub_init || sig == NULL || siglen != ctx->siglen ||
+		(msg == NULL && msglen != 0) || msglen > ctx->max_msglen)
+		return -1;
+
+	if (qsa_verify_hw(adapter_handle, ctx, sig, siglen, msg, msglen))
+		return -1;
+
+	stats_increment(ICA_STATS_MLDSA_VERIFY +
+					mldsa_keysize_stats_ofs(ctx->variant),
+					ALGO_HW, ENCRYPT);
+
+	return 0;
+}
+
+/*
+ * Delete a context. Its sensitive data is erased.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+int ica_mldsa_ctx_free(ICA_MLDSA_CTX **ctx)
+{
+	if (!mldsa_supported_via_online_card((*ctx)->variant) ||
+		ctx == NULL || *ctx == NULL)
+		return -1;
+
+	// Fixme: die CEX8C könnte zwischen ctx_new und ctx_del offline gehen,
+	//        dann könnte man den ctx ncht mehr löschen. Hier Karte nicht
+	//        mehr checken?
+
+	OPENSSL_cleanse(*ctx, sizeof(**ctx));
+	free(*ctx);
+	*ctx = NULL;
+
+	return 0;
+}
+
 
 extern int msa;
 

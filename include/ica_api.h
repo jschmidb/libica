@@ -157,6 +157,9 @@ typedef ica_adapter_handle_t ICA_ADAPTER_HANDLE;
 #define X25519_DERIVE	107
 #define X448_KEYGEN	108
 #define X448_DERIVE	109
+#define MLDSA_KEYGEN    120
+#define MLDSA_SIGN      121
+#define MLDSA_VERIFY    122
 
 /*
  * Key length for DES/3DES encryption/decryption
@@ -3581,6 +3584,91 @@ void ica_aes_gcm_kma_ctx_free(kma_ctx* ctx);
   *             End of new gcm API based on KMA.
   *
   ******************************************************************************/
+
+typedef struct ica_mldsa_ctx ICA_MLDSA_CTX;
+
+typedef enum {
+	DILITHIUM_3_65 = 0,
+	DILITHIUM_3_87,
+} mldsa_variant_t;
+
+/*
+ * Allocate a new context. CEX8C required.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+ICA_EXPORT
+int ica_mldsa_ctx_new(ICA_MLDSA_CTX **ctx, mldsa_variant_t variant);
+
+/*
+ * Copy the private and public key to the context. CEX8C required.
+ * The application must provide the public and private key with the individual
+ * key parts concatenated in the well-known order.
+ * For the Dilithium (6,5) and (8,7) variants this is:
+ * Public key: (rho, t1)
+ * Private key: (seed, tr, s1, s2, t0)
+ *
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+ICA_EXPORT
+int ica_mldsa_key_set(ICA_MLDSA_CTX *ctx,
+			const unsigned char *pubkey, unsigned int pubkey_len,
+			const unsigned char *privkey, unsigned int privkey_len);
+
+/*
+ * Copy the private and public key from the context. CEX8C required.
+ * The individual key parts are concatenated in the well-known order.
+ * For the Dilithium (6,5) and (8,7) variants this is:
+ * Public key: (rho, t1)
+ * Private key: (seed, tr, s1, s2, t0)
+ * The lengths of the private and public key are returned in *pubkey_len
+ * and *privkey_len. When calling this function the integer fields must
+ * contain the buffer sizes of the pubkey and privkey buffers.
+ * When calling the function with both, pubkey and privkey NULL, then the
+ * lengths of the public and private key are returned in the integer
+ * fields.
+ *
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+ICA_EXPORT
+int ica_mldsa_key_get(ICA_MLDSA_CTX *ctx,
+			unsigned char *pubkey, unsigned int *pubkey_len,
+			unsigned char *privkey, unsigned int *privkey_len);
+
+/*
+ * Generate an ML-DSA key. CEX8C required.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+ICA_EXPORT
+int ica_mldsa_key_gen(ica_adapter_handle_t adapter_handle,
+			ICA_MLDSA_CTX *ctx);
+
+/*
+ * ML-DSA sign. Requires the context to hold the private key. CEX8C required.
+ * If a NULL pointer is passed for sig, then the length of the signature is
+ * returned in *siglen.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+ICA_EXPORT
+int ica_mldsa_sign(ica_adapter_handle_t adapter_handle,
+			ICA_MLDSA_CTX *ctx, unsigned char *sig,
+			unsigned int *siglen, const unsigned char *msg, size_t msglen);
+
+/*
+ * ML-DSA verify. Requires the context to hold the public key. CEX8C required.
+ * Returns 0 if signature is valid. Otherwise, -1 is returned.
+ */
+ICA_EXPORT
+int ica_mldsa_verify(ica_adapter_handle_t adapter_handle,
+			ICA_MLDSA_CTX *ctx, const unsigned char *sig,
+			unsigned int siglen, const unsigned char *msg, size_t msglen);
+
+/*
+ * Delete a context. Its sensitive data is erased. CEX8C required.
+ * Returns 0 if successful. Otherwise, -1 is returned.
+ */
+ICA_EXPORT
+int ica_mldsa_ctx_free(ICA_MLDSA_CTX **ctx);
+
 
 /**
  * Return processor's highest message security assist (MSA) level.

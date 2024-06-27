@@ -21,14 +21,14 @@ LIBS_common = @LIBS@ -lrt -lcrypto -ldl
 LDFLAGS_common = -Wl,--version-script=${srcdir}/../libica.map \
 		    -version-number ${VERSION}
 SOURCES_common = ica_api.c init.c icastats_shared.c s390_rsa.c s390_cca.c \
-		    s390_crypto.c s390_ecc.c s390_prng.c s390_sha.c \
+		    s390_crypto.c s390_ecc.c s390_mldsa.c s390_prng.c s390_sha.c \
 		    s390_drbg.c s390_drbg_sha512.c test_vec.c fips.c \
 		    mp.S rng.c \
 		    include/fips.h include/icastats.h include/init.h \
 		    include/s390_aes.h include/s390_cbccs.h \
 		    include/s390_ccm.h include/s390_cmac.h \
 		    include/s390_common.h include/s390_crypto.h include/s390_cca.h \
-		    include/s390_ctr.h include/s390_des.h \
+		    include/s390_ctr.h include/s390_des.h include/s390_mldsa.h \
 		    include/s390_drbg.h include/s390_drbg_sha512.h \
 		    include/s390_ecc.h include/s390_gcm.h include/s390_prng.h \
 		    include/s390_rsa.h include/s390_sha.h include/test_vec.h \
@@ -111,12 +111,12 @@ internal_tests_ec_internal_test_SOURCES = \
 		    ica_api.c init.c icastats_shared.c s390_rsa.c \
 		    s390_crypto.c s390_ecc.c s390_prng.c s390_sha.c \
 		    s390_drbg.c s390_drbg_sha512.c test_vec.c fips.c \
-		    mp.S rng.c s390_cca.c \
+		    mp.S rng.c s390_cca.c s390_mldsa.c \
 		    include/fips.h include/icastats.h include/init.h \
 		    include/s390_aes.h include/s390_cbccs.h \
 		    include/s390_ccm.h include/s390_cmac.h \
 		    include/s390_common.h include/s390_crypto.h include/s390_cca.h \
-		    include/s390_ctr.h include/s390_des.h \
+		    include/s390_ctr.h include/s390_des.h include/s390_mldsa.h \
 		    include/s390_drbg.h include/s390_drbg_sha512.h \
 		    include/s390_ecc.h include/s390_gcm.h include/s390_prng.h \
 		    include/s390_rsa.h include/s390_sha.h include/test_vec.h \

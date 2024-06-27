@@ -558,6 +558,9 @@ libica_func_list_element_int icaList[] = {
 
  {SHA512_DRNG, PPNO, SHA512_DRNG_GEN, ICA_FLAG_SW, 0, 0, 0},
 
+ {MLDSA_KEYGEN, ADAPTER, 0, 0, 0, 0, 0},
+ {MLDSA_SIGN, ADAPTER, 0, 0, 0, 0, 0},
+ {MLDSA_VERIFY, ADAPTER, 0, 0, 0, 0, 0},
 };
 
 /*
@@ -656,6 +659,14 @@ int s390_initialize_functionlist()
 			if (any_card_online) {
 				/* sw flag already pre-set in icaList */
 				e->property |= ICA_PROPERTY_RSA_ALL;
+			}
+			break;
+		case MLDSA_KEYGEN:
+		case MLDSA_SIGN:
+		case MLDSA_VERIFY:
+			if (mldsa_via_online_card) {
+				e->flags |= ICA_FLAG_DHW;
+				e->property = 0;
 			}
 			break;
 		default:

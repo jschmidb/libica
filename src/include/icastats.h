@@ -104,8 +104,18 @@ typedef enum stats_fields {
 	ICA_STATS_RSA_CRT_512,
 	ICA_STATS_RSA_CRT_1024,
 	ICA_STATS_RSA_CRT_2048,
-	ICA_STATS_RSA_CRT_4096, /* add new crypt counters above RSA_CRT_4096
-			      (see print_stats function) */
+	ICA_STATS_RSA_CRT_4096, 
+	ICA_STATS_MLDSA_KEYGEN,
+	ICA_STATS_DILITHIUM_KEYGEN_3_65,
+	ICA_STATS_DILITHIUM_KEYGEN_3_87,
+	ICA_STATS_MLDSA_SIGN,
+	ICA_STATS_DILITHIUM_SIGN_3_65,
+	ICA_STATS_DILITHIUM_SIGN_3_87,
+	ICA_STATS_MLDSA_VERIFY,
+	ICA_STATS_DILITHIUM_VERIFY_3_65,
+	ICA_STATS_DILITHIUM_VERIFY_3_87,
+	/* add new crypt counters above here
+	   (see print_stats function) */
 
 	/* enc and dec counter  */
 	ICA_STATS_DES_ECB,
@@ -229,6 +239,15 @@ typedef enum stats_fields {
 	"- 1024",	\
 	"- 2048",	\
 	"- 4096",	\
+	"ML-DSA Keygen", \
+	"- Dilithium 3 (6,5)",		\
+	"- Dilithium 3 (8,7)",		\
+	"ML-DSA Sign", 	\
+	"- Dilithium 3 (6,5)",		\
+	"- Dilithium 3 (8,7)",		\
+	"ML-DSA Verify", \
+	"- Dilithium 3 (6,5)",		\
+	"- Dilithium 3 (8,7)",		\
 	"DES ECB",    	\
 	"DES CBC",    	\
 	"DES OFB",    	\
@@ -351,6 +370,17 @@ static inline int ecc_keysize_stats_ofs(int nid)
 		return 6;
 	case NID_secp521r1:
 		return 7;
+	}
+	return 0;
+}
+
+static inline int mldsa_keysize_stats_ofs(int variant)
+{
+	switch (variant) {
+	case DILITHIUM_3_65:
+		return 1;
+	case DILITHIUM_3_87:
+		return 2;
 	}
 	return 0;
 }
