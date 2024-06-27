@@ -37,6 +37,9 @@ int cex_check_ok(libica_func_list_element func)
 	case EC_DSA_SIGN:
 	case EC_DSA_VERIFY:
 	case EC_KGEN:
+	case MLDSA_KEYGEN:
+	case MLDSA_SIGN:
+	case MLDSA_VERIFY:
 		return 1;
 		break;
 	default:
