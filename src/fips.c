@@ -1000,6 +1000,7 @@ aes_gcm_kat(void) {
 		memset(icb, 0, sizeof(icb));
 		memset(ucb, 0, sizeof(ucb));
 		memset(subkey, 0, sizeof(subkey));
+		ica_allow_external_gcm_iv_in_fips_mode(1);
 		if ((tv->rv == 0) && (ica_aes_gcm_initialize_internal(tv->iv, tv->ivlen,
 		    tv->key, tv->keylen, icb, ucb, subkey, ICA_ENCRYPT)
 		    || ica_aes_gcm_intermediate(tv->plaintext,
@@ -1014,6 +1015,7 @@ aes_gcm_kat(void) {
 		    || memcmp(tv->tag, tag, tv->taglen)))
 			goto _err_;
 
+		ica_allow_external_gcm_iv_in_fips_mode(0);
 		free(tag);
 		free(out);
 	}
@@ -1022,6 +1024,7 @@ aes_gcm_kat(void) {
 _err_:
 	free(tag);
 	free(out);
+	ica_allow_external_gcm_iv_in_fips_mode(0);
 #ifndef NO_CPACF
 	syslog(LOG_ERR, "Libica AES-GCM test failed.");
 #endif
