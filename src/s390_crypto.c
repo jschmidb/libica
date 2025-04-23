@@ -35,13 +35,14 @@ unsigned int sha1_switch, sha256_switch, sha512_switch, sha3_switch, des_switch,
 	     tdes_switch, aes128_switch, aes192_switch, aes256_switch,
 	     prng_switch, tdea128_switch, tdea192_switch, sha512_drng_switch,
 	     msa4_switch, msa5_switch, msa8_switch, trng_switch, msa9_switch,
-		 ecc_via_online_card, any_card_online;
+		 ecc_via_online_card, any_card_online, mldsa_via_online_card;
 int msa;
 
 #define CARD_AVAILABLE		0x01
 #define CEXnA_AVAILABLE		0x02
 #define CEXnC_AVAILABLE		0x04
 #define CEX4C_AVAILABLE		0x08
+#define CEX8C_AVAILABLE		0x10
 
 s390_supported_function_t s390_kimd_functions[] = {
 	{SHA_1, S390_CRYPTO_SHA_1, &sha1_switch},
@@ -447,8 +448,11 @@ unsigned int search_for_cards()
 		if (type[4] == 'C' && !in_se_guest)
 			ret |= CARD_AVAILABLE | CEXnC_AVAILABLE;
 
-		if (type[3] >= '4' && type[4] == 'C' && !in_se_guest)
+		if (type[3] >= '4' && type[3] < '8' && type[4] == 'C' && !in_se_guest)
 			ret |= CARD_AVAILABLE | CEX4C_AVAILABLE;
+
+		if (type[3] >= '8' && type[4] == 'C' && !in_se_guest)
+			ret |= CARD_AVAILABLE | CEX8C_AVAILABLE;
 	}
 
 	closedir(sysDir);
@@ -469,6 +473,10 @@ void s390_crypto_switches_init(void)
 		any_card_online = 1;
 	if (flags & CEX4C_AVAILABLE)
 		ecc_via_online_card = 1;
+	if ((flags & CEX8C_AVAILABLE) && !(flags & CEX4C_AVAILABLE)) {
+		/* All online CCA cards must be '8' or higher to support ML-DSA */
+		mldsa_via_online_card = 1;
+	}
 
 	set_switches(msa);
 }
