@@ -33,6 +33,7 @@
 #include "ica_api.h"
 #include "s390_crypto.h"
 #include "s390_ecc.h"
+#include "s390_mldsa.h"
 
 #if defined(NO_SW_FALLBACKS) && defined(NO_CPACF)
 #define CMD_NAME "icainfo-cex"
@@ -42,6 +43,17 @@
 #define COPYRIGHT "Copyright IBM Corp. 2007-2024."
 
 #define CELL_SIZE 3
+
+typedef struct {
+	mldsa_variant_t variant;
+	const char *sname;
+	unsigned int flags;
+} s390_supported_mldsa_variants_t;
+
+static const unsigned int cca_mldsa_variants[] = {
+	DILITHIUM_3_65, DILITHIUM_3_87,
+};
+static const unsigned int cca_mldsa_variants_len = sizeof(cca_mldsa_variants) / sizeof(unsigned int);
 
 typedef struct {
 	unsigned int nid;
@@ -135,6 +147,129 @@ static int online_cca_card(void)
 
 	free(pmech_list);
 	return 0;
+}
+
+static int online_cca8_card(void)
+{
+	unsigned int mech_len, j;
+	libica_func_list_element *pmech_list = NULL;
+
+	if (ica_get_functionlist(NULL, &mech_len) != 0) {
+		perror("get_functionlist: ");
+		return 0;
+	}
+
+	pmech_list = malloc(sizeof(libica_func_list_element)*mech_len);
+	if (!pmech_list) {
+		perror("online_cca8_card: error malloc");
+		return 0;
+	}
+
+	if (ica_get_functionlist(pmech_list, &mech_len) != 0) {
+		perror("get_functionlist: ");
+		free(pmech_list);
+		return 0;
+	}
+
+	for (j = 0; j < mech_len; j++) {
+		if (pmech_list[j].mech_mode_id == MLDSA_SIGN) {
+			if (pmech_list[j].flags & ICA_FLAG_DHW) {
+				free(pmech_list);
+				return 1;
+			}
+		}
+	}
+
+	free(pmech_list);
+	return 0;
+}
+
+static int num_cca_mldsa_variants(void)
+{
+	if (!online_cca8_card())
+		return 0;
+
+	return cca_mldsa_variants_len;
+}
+
+const char *variant2string(mldsa_variant_t variant)
+{
+	switch (variant) {
+	case DILITHIUM_3_65:
+		return "Dilithium Round 3, Level 3 (6-5)";
+	case DILITHIUM_3_87:
+		return "Dilithium Round 3, Level 5 (8-7)";
+	default:
+		return "";
+	}
+}
+
+void add_mldsa_variants(s390_supported_mldsa_variants_t *variants_array,
+		size_t array_len, unsigned int flags)
+{
+	unsigned int i;
+
+	if (!online_cca8_card())
+		flags = 0;
+
+	for (i = 0; i < array_len; i++) {
+		variants_array[i].variant = i;
+		variants_array[i].sname = variant2string(variants_array[i].variant);
+		variants_array[i].flags |= flags;
+	}
+}
+
+void print_mldsa_variants(void)
+{
+	s390_supported_mldsa_variants_t *variants_array;
+	unsigned int array_len, array_size, n;
+#ifdef NO_CPACF
+	char *no_shw = "-";
+#else
+	char *no_shw = "no";
+#endif
+#ifdef NO_SW_FALLBACKS
+	char *no_sw = "-";
+#else
+	char *no_sw = "no";
+#endif
+
+	array_len = num_cca_mldsa_variants();
+	array_size = array_len * sizeof(s390_supported_mldsa_variants_t);
+	variants_array = calloc(1, array_size);
+	if (!variants_array) {
+		fprintf(stderr, "Error: cannot allocate %d bytes for array of ML-DSA variants.\n", array_size);
+		return;
+	}
+
+	add_mldsa_variants(variants_array, array_len, ICA_FLAG_DHW);
+
+	printf("------------------------------------------------------------------------\n");
+	printf("                                  |         hardware        |           \n");
+	printf("                   ML-DSA variant |  dynamic   |   static   |  software \n");
+	printf("----------------------------------+------------+------------+-----------\n");
+
+	for (n = 0; n < array_len; n++) {
+		printf("%33s |    %*s     |    %*s     |    %*s\n",
+			variants_array[n].sname,
+			CELL_SIZE,
+			variants_array[n].flags & ICA_FLAG_DHW ? "yes" : "no",
+			CELL_SIZE,
+			variants_array[n].flags & ICA_FLAG_SHW ? "yes" : no_shw,
+			CELL_SIZE,
+			variants_array[n].flags & ICA_FLAG_SW ? "yes" : no_sw);
+	}
+	printf("------------------------------------------------------------------------\n");
+#ifdef ICA_FIPS
+	printf("Built-in FIPS support: FIPS 140-3 mode %s.\n",
+	    ica_fips_status() & ICA_FIPS_MODE ? "active" : "inactive");
+	if (ica_fips_status() >> 1)
+		printf("FIPS SELF-TEST FAILURE. CHECK THE SYSLOG.\n");
+#else
+	printf("No built-in FIPS support.\n");
+#endif /* ICA_FIPS */
+
+	free(variants_array);
 }
 
 int rsa_keylen_supported_by_openssl(unsigned int modulus_bitlength)
@@ -439,15 +574,17 @@ void print_help(char *cmd)
 	     " -v, --version        show version information\n"
 	     " -c, --list-curves    list supported EC curves\n"
 	     " -r, --list-rsa       list supported RSA key lengths\n"
+	     " -m, --list-mldsa-variants    list supported ML-DSA variants\n"
 	     " -f, --list-fips-exceptions   show fips exception list\n"
 	     " -h, --help           display this help text\n");
 }
 
-#define getopt_string "qcrfvh"
+#define getopt_string "qcrmfvh"
 static struct option getopt_long_options[] = {
 	{"list-curves", 0, 0, 'c'},
 	{"list-rsa", 0, 0, 'r'},
 	{"list-fips-exceptions", 0, 0, 'f'},
+	{"list-mldsa-variants", 0, 0, 'm'},
 	{"version", 0, 0, 'v'},
 	{"help", 0, 0, 'h'},
 	{0, 0, 0, 0}
@@ -514,6 +651,9 @@ static struct crypt_pair crypt_map[] = {
 	{"AES CMAC", AES_CMAC},
 	{"AES XTS", AES_XTS},
 	{"AES GCM", AES_GCM_KMA},
+	{"ML-DSA Keygen", MLDSA_KEYGEN},
+	{"ML-DSA Sign", MLDSA_SIGN},
+	{"ML-DSA Verify", MLDSA_VERIFY},
 	{NULL,0}
 };
 
@@ -660,6 +800,9 @@ int main(int argc, char **argv)
 		case 'r':
 			print_rsa();
 			exit(0);
+		case 'm':
+			print_mldsa_variants();
+			exit(0);
 		case 'v':
 			print_version();
 			exit(0);
@@ -682,8 +825,8 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	printf("              Cryptographic algorithm support      \n");
-	printf("------------------------------------------------------\n");
+	printf("             Cryptographic algorithm support         \n");
+	printf("-----------------------------------------------------\n");
 
 	if (ica_get_functionlist(NULL, &mech_len) != 0){
 		perror("get_functionlist: ");
@@ -730,10 +873,10 @@ int main(int argc, char **argv)
 	}
 #endif /* ICA_FIPS */
 
-	printf("               |         hardware        |            \n");
-	printf(" function      |   dynamic  |   static   |  software  \n");
-	printf("               |            |  (msa=%02d)  |            \n",ica_get_msa_level());
-	printf("---------------+------------+------------+------------\n");
+	printf("                |         hardware        |            \n");
+	printf(" function       |   dynamic  |   static   |  software  \n");
+	printf("                |            |  (msa=%02d)  |            \n",ica_get_msa_level());
+	printf("----------------+------------+------------+----------\n");
 	for (i = 0; crypt_map[i].algo_id; i++) {
 		for (j = 0; j < mech_len; j++) {
 			if (crypt_map[i].algo_id == pmech_list[j].mech_mode_id) {
@@ -743,12 +886,12 @@ int main(int argc, char **argv)
 					fips_list[k].fips_approved == 0 &&
 					fips_list[k].fips_override == 0) ||
 					ica_fips_status() >> 1) {
-					printf("%14s |  blocked   |  blocked   |  blocked\n",
+					printf("%16s |  blocked   |  blocked   |  blocked\n",
 						crypt_map[i].name);
 					break;
 				}
 #endif /* ICA_FIPS */
-				printf("%14s |    %*s     |    %*s     |    %*s     \n",
+				printf("%16s |    %*s     |    %*s     |    %*s     \n",
 					crypt_map[i].name,
 					CELL_SIZE,
 					pmech_list[j].flags & ICA_FLAG_DHW ? "yes" : no_dhw,
@@ -763,7 +906,7 @@ int main(int argc, char **argv)
 #ifdef ICA_FIPS
 	free(fips_list);
 #endif
-	printf("------------------------------------------------------\n");
+	printf("-----------------------------------------------------\n");
 
 #ifdef ICA_FIPS
 	printf("Built-in FIPS support: FIPS 140-3 mode %s.\n",
